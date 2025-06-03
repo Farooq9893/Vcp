@@ -1,117 +1,71 @@
 import streamlit as st
-import yfinance as yf
 import pandas as pd
 import requests
 from bs4 import BeautifulSoup
 
-st.set_page_config(page_title="AI Stock Dashboard", layout="wide")
-st.title("📊 AI Stock Analysis Dashboard")
+st.set_page_config(page_title="📈 AI Stock Screener", layout="wide")
 
-st.markdown("Enter a stock ticker (e.g., SHRIPISTON, INDNIPPON, PIDILITIND, SHANKARA, SUDARSCHEM...)")
-symbol = st.text_input("Enter Stock Ticker Symbol", value="SHRIPISTON").upper()
+st.markdown("<h1 style='text-align: center; color: #2e86de;'>📊 AI Stock Screener (NSE)</h1>", unsafe_allow_html=True)
 
-# ========== Scraping Functions ==========
+@st.cache_data
+def load_nse_symbols():
+    url = "https://archives.nseindia.com/content/equities/EQUITY_L.csv"
+    df = pd.read_csv(url)
+    return df["SYMBOL"].dropna().unique().tolist()
 
+symbols_list = load_nse_symbols()
+
+st.markdown("### 🔍 Select Stocks to Analyze (Max 50)")
+selected_symbols = st.multiselect("Choose Stocks", symbols_list, default=symbols_list[:5], max_selections=50)
+
+@st.cache_data(show_spinner=False)
 def get_screener_data(symbol):
-    url = f"https://www.screener.in/company/{symbol}/consolidated/"
-    headers = {'User-Agent': 'Mozilla/5.0'}
-    response = requests.get(url, headers=headers)
-    soup = BeautifulSoup(response.text, 'html.parser')
-    return soup
-
-def extract_quarterly_sales(soup):
     try:
-        table = soup.find('section', {'id': 'quarters'}).find('table')
-        df = pd.read_html(str(table))[0]
-        return df
-    except Exception as e:
-        return f"Error: {e}"
+        url = f'https://www.screener.in/company/{symbol}/'
+        headers = {"User-Agent": "Mozilla/5.0"}
+        res = requests.get(url, headers=headers, timeout=10)
+        soup = BeautifulSoup(res.text, 'html.parser')
+        rows = soup.select('section#top-ratios div.flex.flex-wrap span')
+        data = [row.get_text(strip=True) for row in rows]
+        return dict(zip(data[::2], data[1::2]))
+    except:
+        return {}
 
-def extract_shareholding_pattern(soup):
+def get_rating(roe, eps, debt_eq):
     try:
-        tables = pd.read_html(str(soup))
-        for table in tables:
-            if 'Shareholding Pattern' in table.columns[0]:
-                return table
-        return "Not Found"
-    except Exception as e:
-        return f"Error: {e}"
-
-# ========== Main Logic ==========
-
-if symbol:
-    try:
-        if not symbol.endswith(".NS"):
-            symbol += ".NS"
-        stock = yf.Ticker(symbol)
-        info = stock.fast_info
-
-        st.subheader(f"Company Overview: {symbol}")
-        col1, col2 = st.columns(2)
-        with col1:
-            st.write("**Previous Close:**", info.get("previous_close", "N/A"))
-            st.write("**Market Cap:**", info.get("market_cap", "N/A"))
-            st.write("**Year High:**", info.get("year_high", "N/A"))
-            st.write("**Year Low:**", info.get("year_low", "N/A"))
-        with col2:
-            st.write("**Open:**", info.get("open", "N/A"))
-            st.write("**Day High:**", info.get("day_high", "N/A"))
-            st.write("**Day Low:**", info.get("day_low", "N/A"))
-            st.write("**Volume:**", info.get("volume", "N/A"))
-
-        st.subheader("📈 Price Chart")
-        df = stock.history(period="6mo")
-        st.line_chart(df["Close"])
-
-        st.subheader("🧠 AI Insight")
-        detailed_info = {}
-        try:
-            detailed_info = stock.info
-        except Exception:
-            st.warning("Detailed info not available from Yahoo Finance.")
-
-        roe = detailed_info.get("returnOnEquity")
-        eps = detailed_info.get("trailingEps")
-        debt_equity = detailed_info.get("debtToEquity")
-
-        suggestion = ""
-        ai_rating = ""
-        if roe and roe > 0.20 and eps and eps > 30 and (not debt_equity or debt_equity < 0.5):
-            suggestion = "✅ Excellent Fundamentals - Strong Buy"
-            ai_rating = "⭐⭐⭐⭐⭐"
-        elif roe and roe > 0.15 and eps and eps > 15:
-            suggestion = "✅ Good Fundamentals - Consider for Investment"
-            ai_rating = "⭐⭐⭐⭐"
-        elif roe and roe > 0.10:
-            suggestion = "🟡 Average Fundamentals - Hold or Watch Closely"
-            ai_rating = "⭐⭐⭐"
-        elif roe and roe < 0.05:
-            suggestion = "⚠️ Weak ROE - Use Caution"
-            ai_rating = "⭐"
+        roe = float(roe.strip('%')) / 100 if '%' in roe else float(roe)
+        eps = float(eps)
+        debt_eq = float(debt_eq)
+        if roe > 0.2 and eps > 30 and debt_eq < 0.5:
+            return "🌟🌟🌟🌟🌟 Strong Buy"
+        elif roe > 0.15 and eps > 15:
+            return "🌟🌟🌟🌟 Buy"
+        elif roe > 0.1:
+            return "🌟🌟🌟 Hold"
+        elif roe < 0.05:
+            return "⚠️ Weak ROE"
         else:
-            suggestion = "🔎 Neutral - Do further analysis"
-            ai_rating = "⭐⭐"
+            return "🔍 Neutral"
+    except:
+        return "❓ Unknown"
 
-        st.info(suggestion)
-        st.success(f"AI Rating: {ai_rating}")
+headers = ["EPS", "Sales growth", "Profit growth", "ROE", "ROCE", "Debt to equity", "OPM", "PEG Ratio", "P/E", "P/B"]
+all_data = []
 
-        # ========== Screener Data Section ==========
-        st.subheader("📊 Screener Data")
-        soup = get_screener_data(symbol.replace(".NS", ""))
+progress = st.progress(0, text="⏳ Fetching data...")
+for i, symbol in enumerate(selected_symbols):
+    ratios = get_screener_data(symbol)
+    row = [symbol] + [ratios.get(h, "N/A") for h in headers[::-1]]
 
-        st.markdown("**Quarterly Sales Data**")
-        sales_df = extract_quarterly_sales(soup)
-        if isinstance(sales_df, pd.DataFrame):
-            st.dataframe(sales_df)
-        else:
-            st.warning(f"Quarterly Sales Not Available: {sales_df}")
+    # AI suggestion
+    rating = get_rating(ratios.get("ROE", "N/A"), ratios.get("EPS", "N/A"), ratios.get("Debt to equity", "N/A"))
+    row.append(rating)
+    all_data.append(row)
+    progress.progress((i+1)/len(selected_symbols), text=f"✅ Processed {symbol}")
 
-        st.markdown("**Shareholding Pattern**")
-        pattern_df = extract_shareholding_pattern(soup)
-        if isinstance(pattern_df, pd.DataFrame):
-            st.dataframe(pattern_df)
-        else:
-            st.warning(f"Shareholding Pattern Not Found: {pattern_df}")
+progress.empty()
 
-    except Exception as e:
-        st.error(f"Something went wrong: {e}")
+final_df = pd.DataFrame(all_data, columns=["Symbol"] + headers[::-1] + ["AI Suggestion"])
+
+st.markdown("### 🧠 AI Ratings & Key Ratios")
+st.dataframe(final_df, use_container_width=True
