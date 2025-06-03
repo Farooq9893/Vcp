@@ -114,4 +114,5 @@ if symbol:
             st.warning(f"Shareholding Pattern Not Found: {pattern_df}")
 
     except Exception as e:
-        st.error(f"Something went wrong: {e}"        
+        st.error(f"Something went wrong: {e}")    
+        
