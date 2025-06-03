@@ -1,6 +1,8 @@
 import streamlit as st
 import yfinance as yf
 import pandas as pd
+import requests
+from bs4 import BeautifulSoup
 
 st.set_page_config(page_title="AI Stock Dashboard", layout="wide")
 
@@ -8,6 +10,31 @@ st.title("📊 AI Stock Analysis Dashboard")
 st.markdown("Enter a stock ticker (e.g., SHRIPISTON, INDNIPPON, PIDILITIND, SHANKARA, SUDARSCHEM, GABRIEL, KIRLOSBROS, CAMPUS, PDSL, DREDGECORP, HARSHA, EMUDHRA, FILATEX, GLENMARK, FMGOETZE, IXIGO, CLSEL, SYNCOMF, POLYPLEX, GANDHAR, REFEX, LTFOODS, INTERARCH, XPROINDIA, STYRENIX, TIIL, SKFINDIA, RRKABEL, DYCL, NUVOCO, BEPL, GOPAL, KALAMANDIR, JYOTICNC, AGIIL, VSSL, SANSTAR, NAVA, ELGIEQUIP, CONCORDBIO, SOBHA, SUZLON, OLECTRA, MOTHERSON, ANANTRAJ, RALLIS, HAPPYFORGE, CENTURYPLY, JINDALSTEL, VINATIORGA, ARE&M, MOLDTKPAC, HONASA, TATVA, JSL, DODLA, TDPOWERSYS, BAJAJHIND, LXCHEM, ICEMAKE, STEELCAS, GRWRHITECH, JASH, AARTIPHARM, TARIL, MARKSANS, SUPRIYA, VISHNU, MANINDS, OPTIEMUS, BIKAJI, NAVKARCORP, CELLO, LIKHITHA, JKIL, SUNFLAG, POWERINDIA, ASKAUTOLTD, LLOYDSENGG, MASTEK, GVT&D, LLOYDSME, DEEPAKNTR, NETWEB, HINDCOPPER)")
 
 symbol = st.text_input("Enter Stock Ticker Symbol", value="SHRIPISTON").upper()
+
+def get_screener_data(symbol):
+    url = f"https://www.screener.in/company/{symbol}/consolidated/"
+    headers = {'User-Agent': 'Mozilla/5.0'}
+    response = requests.get(url, headers=headers)
+    soup = BeautifulSoup(response.text, 'html.parser')
+    return soup
+
+def extract_quarterly_sales(soup):
+    try:
+        table = soup.find('section', {'id': 'quarters'}).find('table')
+        df = pd.read_html(str(table))[0]
+        return df
+    except Exception as e:
+        return f"Error: {e}"
+
+def extract_shareholding_pattern(soup):
+    try:
+        tables = pd.read_html(str(soup))
+        for table in tables:
+            if 'Shareholding Pattern' in table.columns[0]:
+                return table
+        return "Not Found"
+    except Exception as e:
+        return f"Error: {e}"
 
 if symbol:
     stock = yf.Ticker(symbol)
@@ -56,3 +83,14 @@ if symbol:
 
     st.info(suggestion)
     st.success(f"AI Rating: {ai_rating}")
+
+    # Additional Web Data
+    st.subheader("📊 Screener Data")
+    soup = get_screener_data(symbol)
+    st.markdown("**Quarterly Sales Data**")
+    sales_df = extract_quarterly_sales(soup)
+    st.dataframe(sales_df)
+
+    st.markdown("**Shareholding Pattern**")
+    pattern_df = extract_shareholding_pattern(soup)
+    st.dataframe(pattern_df)
