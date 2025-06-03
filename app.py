@@ -55,7 +55,7 @@ if symbol:
 
     st.subheader("📈 Price Chart")
     df = stock.history(period="6mo")
-    st.line_chart(df["Close"])
+    st.candle_chart(df["Close"])
 
     st.subheader("🤖 AI Insight")
     roe = info.get("returnOnEquity")
